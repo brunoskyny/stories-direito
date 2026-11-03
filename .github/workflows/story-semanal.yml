@@ -1,1 +1,92 @@
+name: Story semanal de eventos
 
+on:
+  schedule:
+    # Toda segunda às 08:50 de Brasília (11:50 UTC)
+    - cron: "50 11 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Só gerar a arte, sem publicar (1 = sim)"
+        default: "1"
+      today:
+        description: "Simular outra data (AAAA-MM-DD), opcional"
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  story:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: |
+          sudo apt-get install -y fonts-dejavu-core > /dev/null
+          pip install -r requirements.txt
+
+      - name: Renovar o token do Instagram (vale 60 dias)
+        id: refresh
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        run: python src/main.py refresh
+
+      - name: Salvar o token renovado nos Secrets
+        if: steps.refresh.outputs.token_changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Secret GH_PAT não configurado; o token novo não foi salvo."
+          else
+            gh secret set IG_ACCESS_TOKEN --repo "${{ github.repository }}" < out/new_token
+          fi
+
+      - name: Ler o site e gerar a arte
+        id: render
+        env:
+          TODAY: ${{ github.event.inputs.today }}
+        run: python src/main.py render
+
+      - name: Guardar a arte como artefato (para conferência)
+        if: steps.render.outputs.has_events == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stories
+          path: out/*.jpg
+
+      - name: Hospedar a arte em URL pública (branch 'stories')
+        if: steps.render.outputs.has_events == 'true'
+        run: |
+          cp out/*.jpg /tmp/
+          git config user.name  "story-bot"
+          git config user.email "story-bot@users.noreply.github.com"
+          git fetch origin stories || true
+          if git show-ref --quiet refs/remotes/origin/stories; then
+            git checkout -B stories origin/stories
+          else
+            git checkout --orphan stories && git rm -rf . > /dev/null
+          fi
+          cp /tmp/story-*.jpg .
+          git add story-*.jpg
+          git commit -m "Stories da semana $(date +%F)" || true
+          git push origin stories
+          git checkout -
+          echo "IMAGE_BASE_URL=https://raw.githubusercontent.com/${{ github.repository }}/stories" >> $GITHUB_ENV
+
+      - name: Publicar no Instagram
+        if: steps.render.outputs.has_events == 'true'
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+        run: |
+          sleep 20
+          if [ -f out/new_token ]; then export IG_ACCESS_TOKEN="$(cat out/new_token)"; fi
+          python src/main.py publish
