@@ -77,7 +77,7 @@ jobs:
           git add story-*.jpg
           git commit -m "Stories da semana $(date +%F)" || true
           git push origin stories
-          git checkout -
+          git checkout -f "${GITHUB_REF_NAME}"
           echo "IMAGE_BASE_URL=https://raw.githubusercontent.com/${{ github.repository }}/stories" >> $GITHUB_ENV
 
       - name: Publicar no Instagram
