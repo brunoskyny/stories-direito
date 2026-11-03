@@ -35,7 +35,7 @@ jobs:
         id: refresh
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
-        run: python src/main.py refresh
+        run: python main.py refresh
 
       - name: Salvar o token renovado nos Secrets
         if: steps.refresh.outputs.token_changed == 'true'
@@ -52,7 +52,7 @@ jobs:
         id: render
         env:
           TODAY: ${{ github.event.inputs.today }}
-        run: python src/main.py render
+        run: python main.py render
 
       - name: Guardar a arte como artefato (para conferência)
         if: steps.render.outputs.has_events == 'true'
@@ -89,4 +89,4 @@ jobs:
         run: |
           sleep 20
           if [ -f out/new_token ]; then export IG_ACCESS_TOKEN="$(cat out/new_token)"; fi
-          python src/main.py publish
+          python main.py publish
