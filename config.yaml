@@ -66,7 +66,7 @@ story:
   background_bottom: "#13315C"
   accent: "#F2A541"
   text: "#FFFFFF"
-  logo_path: "assets/logo.png"     # opcional (PNG com fundo transparente)
+  logo_path: "logo.png"     # opcional (PNG com fundo transparente)
 
 # Instagram API com login do Instagram (não precisa de Página no Facebook)
 instagram:
