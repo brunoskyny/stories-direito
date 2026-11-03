@@ -1,0 +1,74 @@
+# ============================================================
+#  Configuração do robô de stories semanais do departamento
+# ============================================================
+
+# Página pública de notícias/eventos do departamento (referência).
+events_url: "https://direitograd.projetosjur.com/noticias"
+
+# Como ler os eventos da página. Opções:
+#   auto     -> tenta, nesta ordem: dados estruturados (JSON-LD schema.org/Event),
+#               feed iCal (.ics) e por fim os seletores CSS abaixo.
+#   jsonld | ical | css -> força um método específico.
+#   wordpress -> lê direto da API do WordPress que alimenta o site (configurado abaixo).
+source_type: wordpress
+
+# O site direitograd.projetosjur.com é alimentado por este WordPress.
+wordpress:
+  api_url: "https://api.projetosjur.com/site-direito/wp-json/wp/v2"
+  public_base: "https://direitograd.projetosjur.com"
+  lookback_days: 45          # notícias publicadas nos últimos N dias
+  # Só notícias destas categorias viram story (slugs do WordPress).
+  # Avisos como prazos e editais ficam de fora.
+  event_categories:
+    - evento
+    - evento-on-line
+    - palestra
+    - seminario
+    - coloquio
+    - conferencia
+    - ciclo-de-debates
+    - jornada
+    - mesa-redonda
+    - aula-magna
+    - aula-inaugural
+    - cine-direito
+    - cine-nima
+    - minicurso
+    - oficina
+    - oficina-da-oab
+    - lancamento-de-livros
+    - encontro-nacional
+    - julgamento-simulado
+    - semana-da-consciencia-negra
+    - semana-de-meio-ambiente
+    - semana-do-meio-ambiente
+
+# Usado só quando o método é "css" (ou quando o "auto" cai nele).
+# Cada seletor é relativo ao bloco de um evento.
+css:
+  item: ".evento, .event, article"     # um bloco por evento
+  title: "h2, h3, .titulo, .title"
+  date: "time, .data, .date"           # texto ou atributo datetime
+  time: ".hora, .horario, .time"       # opcional
+  location: ".local, .location"        # opcional
+  link: "a"                            # opcional
+
+# Fuso e semana considerada (segunda a domingo).
+timezone: "America/Sao_Paulo"
+
+# Aparência do story
+story:
+  header: "AGENDA DA SEMANA"
+  subheader: "Direito"
+  footer: "Mais informações: link na bio"
+  max_events_per_story: 4          # se houver mais, gera mais de um story
+  background_top: "#0B2545"           # cores do degradê
+  background_bottom: "#13315C"
+  accent: "#F2A541"
+  text: "#FFFFFF"
+  logo_path: "assets/logo.png"     # opcional (PNG com fundo transparente)
+
+# Instagram API com login do Instagram (não precisa de Página no Facebook)
+instagram:
+  graph_host: "https://graph.instagram.com"
+  api_version: "v23.0"
