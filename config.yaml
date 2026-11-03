@@ -70,5 +70,5 @@ story:
 
 # Instagram API com login do Instagram (não precisa de Página no Facebook)
 instagram:
-  graph_host: "https://graph.instagram.com"
+  graph_host: "https://graph.facebook.com"
   api_version: "v23.0"
