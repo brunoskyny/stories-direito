@@ -22,8 +22,10 @@ _NUM = {k: MESES[k[:3]] for k in ["janeiro", "fevereiro", "março", "abril", "ma
                                     "agosto", "setembro", "outubro", "novembro", "dezembro"]}
 _NUM["marco"] = 3
 
-# "20 a 23 de outubro", "dias 20 e 21 de outubro", "16 a 18 de setembro de 2026"
-_RANGE = re.compile(rf"\b(\d{{1,2}})(?:º)?\s*(?:a|e|até|-|–)\s*(\d{{1,2}})\s+de\s+{_MES}(?:\s+de\s+(\d{{4}}))?", re.I)
+# "20 a 23 de outubro", "16 até 18 de setembro de 2026" (intervalo contínuo)
+_RANGE = re.compile(rf"\b(\d{{1,2}})(?:º)?\s*(?:a|até|-|–)\s*(\d{{1,2}})\s+de\s+{_MES}(?:\s+de\s+(\d{{4}}))?", re.I)
+# "4 e 6 de novembro", "21, 22 e 23 de outubro" (lista de dias)
+_LIST = re.compile(rf"\b(\d{{1,2}}(?:º)?(?:\s*,\s*\d{{1,2}}(?:º)?)*)\s+e\s+(\d{{1,2}})(?:º)?\s+de\s+{_MES}(?:\s+de\s+(\d{{4}}))?", re.I)
 # "4 de novembro", "1º de dezembro de 2026"
 _SINGLE = re.compile(rf"\b(\d{{1,2}})(?:º)?\s+de\s+{_MES}(?:\s+de\s+(\d{{4}}))?", re.I)
 # "às 10h", "das 11h às 13h", "a partir das 9h", "19h30", "14:00"
@@ -47,20 +49,52 @@ def _year_for(month: int, day: int, published: date) -> int:
     return y
 
 
-def extract_when(text: str, published: date) -> tuple[date, date] | None:
-    m = _RANGE.search(text)
-    s = _SINGLE.search(text)
+def extract_when(text: str, published: date) -> list[tuple[date, date]]:
+    """Devolve os blocos de datas do evento: [(início, fim), ...].
+    Dias seguidos viram um bloco só (20 a 23/10); dias separados viram blocos
+    separados (4 e 6/11 -> dois cards no story)."""
+    cands = [(m.start(), "range", m) for m in [_RANGE.search(text)] if m]
+    cands += [(m.start(), "list", m) for m in [_LIST.search(text)] if m]
+    cands += [(m.start(), "single", m) for m in [_SINGLE.search(text)] if m]
+    if not cands:
+        return []
     # usa o que aparecer primeiro no texto (o subtítulo costuma trazer a data do evento)
-    if m and (not s or m.start() <= s.start()):
+    _, kind, m = min(cands, key=lambda c: (c[0], c[1] != "list", c[1] != "range"))
+    if kind == "range":
         mon = _NUM[m[3].lower()]
         y = int(m[4]) if m[4] else _year_for(mon, int(m[1]), published)
-        return date(y, mon, int(m[1])), date(y, mon, int(m[2]))
-    if s:
-        mon = _NUM[s[2].lower()]
-        y = int(s[3]) if s[3] else _year_for(mon, int(s[1]), published)
-        d = date(y, mon, int(s[1]))
-        return d, d
-    return None
+        return [(date(y, mon, int(m[1])), date(y, mon, int(m[2])))]
+    if kind == "list":
+        mon = _NUM[m[3].lower()]
+        nums = [int(n) for n in re.findall(r"\d{1,2}", m[1])] + [int(m[2])]
+        y = int(m[4]) if m[4] else _year_for(mon, nums[0], published)
+        days = sorted({date(y, mon, n) for n in nums})
+        blocks, ini, prev = [], days[0], days[0]
+        for d in days[1:]:
+            if (d - prev).days == 1:
+                prev = d
+                continue
+            blocks.append((ini, prev))
+            ini = prev = d
+        blocks.append((ini, prev))
+        return blocks
+    mon = _NUM[m[2].lower()]
+    y = int(m[3]) if m[3] else _year_for(mon, int(m[1]), published)
+    d = date(y, mon, int(m[1]))
+    return [(d, d)]
+
+
+def section_for(text: str, d: date) -> str:
+    """Trecho do texto que fala de um dia específico (ex.: 'Sexta-feira, 6 de novembro – PUC-Rio ...').
+    Ignora a primeira menção (o resumo geral) quando houver uma seção própria mais abaixo."""
+    mes = [k for k, v in _NUM.items() if v == d.month][0]
+    pat = re.compile(rf"\b0?{d.day}(?:º)?\s+de\s+{mes}|\b0?{d.day}/0?{d.month}\b", re.I)
+    hits = [m.start() for m in pat.finditer(text)]
+    for pos in reversed(hits):  # a seção detalhada costuma ser a última menção
+        chunk = text[pos:pos + 400]
+        if _LOCAL.search(chunk):
+            return chunk
+    return ""
 
 
 def extract_time(text: str) -> time | None:
@@ -75,11 +109,29 @@ def extract_time(text: str) -> time | None:
 def extract_place(text: str) -> str:
     m = _LOCAL.search(text)
     if m:
-        return m[1].split(",")[0].strip()[:40]
+        local = m[1]
+        p = _PLACE.search(local)          # "PUC-Rio, Auditório FB6, ..." -> "Auditório FB6"
+        if p:
+            return p[1]
+        return re.sub(r"\s*\(.*", "", local.split(",")[0]).strip()[:40]  # "FGV Direito Rio (Praia...)" -> "FGV Direito Rio"
     m = _PLACE.search(text)
     if m:
         return m[1]
     return "Online" if _ONLINE.search(text) else ""
+
+
+_OUTRAS = re.compile(r"\b(FGV|UERJ|UFRJ|UFF|UNIRIO|IBMEC|Mackenzie|OAB|IAB|EMERJ|Tribunal|F[óo]rum)\b", re.I)
+
+
+def is_at_puc(text: str) -> bool:
+    """Decide pelo 'Local:' do evento. Sem 'Local:' na notícia, considera que é na PUC-Rio."""
+    m = _LOCAL.search(text)
+    if not m:
+        return True
+    local = m[1]
+    if re.search(r"PUC", local, re.I):
+        return True
+    return not _OUTRAS.search(local)
 
 
 def fetch_wordpress(cfg: dict, today: date) -> list[Event]:
@@ -104,15 +156,21 @@ def fetch_wordpress(cfg: dict, today: date) -> list[Event]:
             continue
         text = _plain(p["content"]["rendered"])
         published = datetime.fromisoformat(p["date"]).date()
-        when = extract_when(text, published)
-        if not when:
+        blocks = extract_when(text, published)
+        if not blocks:
             continue
-        ini, fim = when
-        # horário e local: procura primeiro perto da data, depois no texto todo
-        out.append(Event(
-            title=html.unescape(re.sub(r"<[^>]+>", "", p["title"]["rendered"])).strip(),
-            day=ini, end=fim if fim != ini else None,
-            start=extract_time(text), location=extract_place(text),
-            url=f"{wp.get('public_base', '').rstrip('/')}/noticia/{p['slug']}" if wp.get("public_base") else p["link"],
-        ))
+        title = html.unescape(re.sub(r"<[^>]+>", "", p["title"]["rendered"])).strip()
+        url = f"{wp.get('public_base', '').rstrip('/')}/noticia/{p['slug']}" if wp.get("public_base") else p["link"]
+        for ini, fim in blocks:
+            # quando a notícia tem uma seção para o dia (ex.: "Sexta-feira, 6 de novembro – PUC-Rio"),
+            # horário e local saem dessa seção; senão, do texto todo
+            sec = section_for(text, ini) if len(blocks) > 1 else ""
+            if wp.get("somente_puc", True) and not is_at_puc(sec or text):
+                continue  # ex.: dia do seminário realizado na FGV
+            out.append(Event(
+                title=title, day=ini, end=fim if fim != ini else None,
+                start=extract_time(sec) or extract_time(text),
+                location=extract_place(sec) or extract_place(text),
+                url=url,
+            ))
     return out
