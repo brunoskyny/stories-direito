@@ -176,7 +176,7 @@ def events_this_week(events: list[Event], today: date) -> list[Event]:
     for e in sorted(events, key=lambda e: (e.day, e.start or time(0))):
         key = (e.title.lower(), e.day)
         last = e.end or e.day
-        if e.day <= fim and last >= ini and key not in seen:  # sobrepõe a semana
+        if e.day <= fim and last >= max(ini, today) and key not in seen:  # sobrepõe a semana e não passou
             seen.add(key)
             out.append(e)
     return out
