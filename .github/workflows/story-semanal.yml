@@ -2,8 +2,11 @@ name: Story semanal de eventos
 
 on:
   schedule:
-    # Toda segunda às 08:50 de Brasília (11:50 UTC)
+    # Toda segunda às 08:50 de Brasília (11:50 UTC) e, como reserva, às 10:50 e 12:50.
+    # A reserva só publica se o story da semana ainda não tiver saído.
     - cron: "50 11 * * 1"
+    - cron: "50 13 * * 1"
+    - cron: "50 15 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -54,15 +57,28 @@ jobs:
           TODAY: ${{ github.event.inputs.today }}
         run: python main.py render
 
-      - name: Guardar a arte como artefato (para conferência)
+      - name: Verificar se o story da semana já foi publicado
+        id: check
         if: steps.render.outputs.has_events == 'true'
+        run: |
+          first=$(python -c "import json;print(json.load(open('out/manifest.json'))[0])")
+          git fetch origin stories || true
+          if [ "${{ github.event_name }}" = "schedule" ] && git cat-file -e "origin/stories:$first" 2>/dev/null; then
+            echo "Story desta semana já publicado; nada a fazer."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Guardar a arte como artefato (para conferência)
+        if: steps.render.outputs.has_events == 'true' && steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: stories
           path: out/*.jpg
 
       - name: Hospedar a arte em URL pública (branch 'stories')
-        if: steps.render.outputs.has_events == 'true'
+        if: steps.render.outputs.has_events == 'true' && steps.check.outputs.skip != 'true'
         run: |
           cp out/*.jpg /tmp/
           git config user.name  "story-bot"
@@ -81,7 +97,7 @@ jobs:
           echo "IMAGE_BASE_URL=https://raw.githubusercontent.com/${{ github.repository }}/stories" >> $GITHUB_ENV
 
       - name: Publicar no Instagram
-        if: steps.render.outputs.has_events == 'true'
+        if: steps.render.outputs.has_events == 'true' && steps.check.outputs.skip != 'true'
         env:
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
